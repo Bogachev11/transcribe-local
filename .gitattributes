@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# cmd.exe misparses batch files with LF-only line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts must stay LF, including on Windows checkouts.
+*.command text eol=lf
+*.sh text eol=lf

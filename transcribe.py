@@ -68,7 +68,14 @@ def collect_inputs(raw_paths):
 
 def load_model(name, device):
     """Return (model, device_used). 'auto' tries the GPU first, then falls back."""
-    from faster_whisper import WhisperModel
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        raise SystemExit(
+            "faster-whisper is not installed.\n"
+            "From the folder holding transcribe.py, run:\n"
+            "    pip install -r requirements.txt"
+        )
 
     attempts = []
     if device in ("auto", "cuda"):
@@ -197,19 +204,47 @@ def transcribe_one(model, source, args):
     return written
 
 
+def looks_like_a_gpu_problem(exc):
+    """CUDA libraries load lazily, so a missing one surfaces during the first
+    transcription rather than when the model is built."""
+    text = str(exc).lower()
+    return any(word in text for word in
+               ("cublas", "cudnn", "cuda", "gpu", "library", "device"))
+
+
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass  # older Python, or a stream that cannot be reconfigured
+
     args = parse_args(argv)
     sources = collect_inputs(args.inputs)
     if not sources:
         raise SystemExit("nothing to transcribe")
 
-    model, _ = load_model(args.model, args.device)
+    model, device_used = load_model(args.model, args.device)
+    may_fall_back = args.device == "auto" and device_used == "cuda"
 
     failures = 0
     for source in sources:
         try:
             transcribe_one(model, source, args)
+            continue
         except Exception as exc:  # noqa: BLE001 - one bad file must not stop the batch
+            if not (may_fall_back and looks_like_a_gpu_problem(exc)):
+                failures += 1
+                print("{}: failed ({})".format(source.name, exc), file=sys.stderr)
+                continue
+            print("the GPU failed part way in ({}), switching to the CPU.".format(exc),
+                  file=sys.stderr)
+
+        model, device_used = load_model(args.model, "cpu")
+        may_fall_back = False
+        try:
+            transcribe_one(model, source, args)
+        except Exception as exc:  # noqa: BLE001
             failures += 1
             print("{}: failed ({})".format(source.name, exc), file=sys.stderr)
     return 1 if failures else 0
