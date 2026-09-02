@@ -1,0 +1,6 @@
+# Optional, for NVIDIA cards. These wheels ship the CUDA 12 libraries that
+# ctranslate2 loads at runtime, so no system-wide CUDA install is needed.
+# Without them the script still works, on the CPU.
+-r requirements.txt
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9.0
